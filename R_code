@@ -1,0 +1,351 @@
+# Load the relevant libraries
+install.packages("tidyverse")
+install.packages("readr")
+install.packages("lubridate")
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("geosphere")
+install.packages("janitor")
+install.packages("data.table")
+install.packages("leaflet")
+install.packages("htmlwidgets")
+install.packages("htmltools")
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(dplyr)
+library(geosphere)
+library(janitor)
+library(readr)
+library(data.table)
+library(leaflet)
+library(htmlwidgets)
+library(htmltools)
+
+
+# Load the dataset
+aug2021 <- read_csv("202108-divvy-tripdata.csv")
+sep2021 <- read_csv("202109-divvy-tripdata.csv")
+oct2021 <- read_csv("202110-divvy-tripdata.csv")
+nov2021 <- read_csv("202111-divvy-tripdata.csv")
+dec2021 <- read_csv("202112-divvy-tripdata.csv")
+jan2022 <- read_csv("202201-divvy-tripdata.csv")
+feb2022 <- read_csv("202202-divvy-tripdata.csv")
+mar2022 <- read_csv("202203-divvy-tripdata.csv")
+apr2022 <- read_csv("202204-divvy-tripdata.csv")
+may2022 <- read_csv("202205-divvy-tripdata.csv")
+jun2022 <- read_csv("202206-divvy-tripdata.csv")
+jul2022 <- read_csv("202207-divvy-tripdata.csv")
+
+# Merge them into one dataframe 
+cycling_annual <- bind_rows(aug2021, sep2021, oct2021, nov2021, dec2021, jan2022, feb2022, mar2022, apr2022, may2022, jun2022, jul2022)
+
+# Check the structure
+str(cycling_annual)
+
+# Sort by date
+cycling_annual <- cycling_annual %>% arrange(started_at)
+
+# Check for duplicates
+if(length(cycling_annual$ride_id) != n_distinct(cycling_annual)) {
+  print("Duplicate rows")
+}
+
+# Total observations for each rideable_type
+table(cycling_annual$rideable_type)
+classic_bike   docked_bike electric_bike 
+  3010473        223503       2557962
+
+# Total observations for member_casual
+table(cycling_annual$member_casual)
+casual  member 
+2476594 3315344
+
+# Column for ride_duration
+cycling_annual$ride_duration <-
+  difftime(cycling_annual$ended_at, cycling_annual$started_at, units = "mins")
+
+# Get trip date, hour, day of the month, month, year and day of the week for each trip
+cycling_annual$date <- as.Date(cycling_annual$started_at)
+cycling_annual$hour <- cycling_annual$started_at %>% hour()
+cycling_annual$day <- cycling_annual$date %>% mday()
+cycling_annual$month <-
+  cycling_annual$date %>% month(label = TRUE, abbr = FALSE)
+cycling_annual$year <- cycling_annual$date %>% year()
+cycling_annual$day_of_week <-
+  cycling_annual$date %>% wday(label = TRUE, abbr = FALSE)
+
+# Check the structure after the modifications
+str(cycling_annual)
+
+# Convert rideable_type and member_casual as factors
+cycling_annual$rideable_type <- as.factor(cycling_annual$rideable_type)
+cycling_annual$member_casual <- as.factor(cycling_annual$member_casual)
+
+# Conduct a quick summary
+summary(cycling_annual)
+
+
+# Remove rides which a duration of less than 1 minute and more than 24 hours. Trips less than minute can be tests or mistakes. Trips more than 24h are highly unlikely and are outliers in this case
+
+cycling_annual <-
+  cycling_annual %>% filter(ride_duration >= 1 & ride_duration < 60 * 24)
+
+# Count for missing values in each coulumn
+cycling_annual %>% sapply(function(x)
+  sum(is.na(x)))
+
+# Ride duration for members                          
+member_ride_duration <-
+  (cycling_annual %>% filter(member_casual == "member"))[, "ride_duration"]
+
+# Convert to numeric
+member_ride_duration$ride_duration <-
+  member_ride_duration$ride_duration %>% as.numeric()
+
+# Exclude outliers
+member_ride_duration <-
+  member_ride_duration$ride_duration[!member_ride_duration$ride_duration %in% boxplot.stats(member_ride_duration$ride_duration)$out]
+
+# Create a histogram for Members
+hist(member_ride_duration,
+     xlab = 'Ride length in mins',
+     ylab = "Number of Rides",
+     main = 'Histogram of Ride Duration Among Cyclistic Members') 
+ 
+     
+
+# Ride duration for casual
+casual_ride_duration <-
+  (cycling_annual %>% filter(member_casual == "casual"))[, "ride_duration"]
+# Convert to numeric
+casual_ride_duration$ride_duration <-
+  casual_ride_duration$ride_duration %>% as.numeric()
+# Exclude outliers
+casual_ride_duration <-
+  casual_ride_duration$ride_duration[!casual_ride_duration$ride_duration %in% boxplot.stats(casual_ride_duration$ride_duration)$out]
+# Create a histogram for Casual 
+hist(casual_ride_duration,
+  xlab = 'Ride length in mins',
+  ylab = "Number of Rides",
+  main = 'Histogram of Ride Duration Among Cyclistic Casual Riders')
+ 
+# Daily average ride for each month
+avg_month_ride <-
+  cycling_annual %>% group_by(member_casual, date) %>% summarise(total_ride = n()) %>% group_by(member_casual, 
+  month = lubridate::floor_date(date, 'month')) %>% summarise(avg_ride = mean(total_ride, na.rm =TRUE)) %>% arrange(month)
+# Daily average rides by month visualized
+ggplot(avg_month_ride, aes(x = month, y = avg_ride)) + geom_point() + geom_line(aes(group = member_casual, colour = member_casual)) + 
+  theme(axis.text.x = element_text(angle =45, hjust = 1)) + ylim(0, NA) + ggtitle("Daily Average Rides by Month") + 
+  labs(x = "Months", y = "Daily average rides") + scale_x_date(date_breaks = "1 month", date_labels = "%B %Y")
+ 
+# Daily average ride
+avg_day_ride <-
+  cycling_annual %>% group_by(member_casual, date, day_of_week) %>% summarise(total_ride = n()) %>% group_by(member_casual, day_of_week) %>% 
+  summarise(avg_ride = mean(total_ride, na.rm = TRUE)) %>% arrange(day_of_week)
+# Daily average ride visualized
+ggplot(avg_day_ride, aes(x = day_of_week, y = avg_ride)) + geom_point() + geom_line(aes(group = 
+  member_casual, colour = member_casual)) + ylim(0, NA) + ggtitle("Daily Average Rides by Days") + labs(x = "Days", y = "Daily average rides")
+ 
+# Average hourly rides for weekdays
+avg_hour_ride_weekdays <-
+  cycling_annual %>% filter(day_of_week != "Saturday" & day_of_week != "Sunday") %>% group_by(member_casual, date, hour) %>% 
+  summarise(total_ride = n()) %>% group_by(member_casual, hour) %>% summarise(avg_ride = mean(total_ride, na.rm = TRUE)) %>% arrange(hour)
+
+
+
+
+
+
+# Average hourly rides for weekdays visualized 
+ggplot(avg_hour_ride_weekdays, aes(x = hour, y = avg_ride)) + geom_point() + geom_line(aes(group =
+  member_casual, colour = member_casual)) + ylim(0, NA) + ggtitle("Hourly Average Rides for Weekdays") + labs(x = "Hour", y = "Hourly average rides")
+ 
+
+# Average hourly rides for weekend
+avg_hour_ride_weekend <-
+  cycling_annual %>% filter(day_of_week == "Saturday" |
+  day_of_week == "Sunday") %>% group_by(member_casual, date, hour) %>% summarise(total_ride = n()) %>% 
+  group_by(member_casual, hour) %>% summarise(avg_ride = mean(total_ride, na.rm = TRUE)) %>% arrange(hour)
+
+
+
+
+# Average hourly rides for weekend visualized
+ggplot(avg_hour_ride_weekend, aes(x = hour, y = avg_ride)) + geom_point() + geom_line(aes(group =
+  member_casual, colour = member_casual)) + ylim(0, NA) + ggtitle("Hourly Average Rides for Weekend") + 
+  labs(x = "Hour", y = "Hourly average rides")
+
+# Average ride length by month visualized
+cycling_annual %>% group_by(member_casual, month = lubridate::floor_date(date, 'month')) %>% 
+  summarise(avg_ride_duration = mean(ride_duration)) %>% ggplot(aes(x =month, y = avg_ride_duration))+ 
+  geom_point() + geom_line(aes(group = member_casual, colour = member_casual)) + 
+  theme(axis.text.x =  element_text(angle = 45, hjust = 1)) + ylim(0, NA) + ggtitle("Average Ride Length by Month") + 
+  labs(x = "Days", y = "Average ride length") + scale_x_date(date_breaks = "1 month", date_labels = "%B %Y")
+ 
+
+# Average ride length by day of the week
+cycling_annual %>% group_by(member_casual, day_of_week) %>% summarise(avg_ride_duration = mean(ride_duration)) %>% 
+  ggplot(aes(x = day_of_week, y = avg_ride_duration)) + geom_point() + geom_line(aes(group = member_casual, colour = member_casual)) +
+   ylim(0, NA) + ggtitle("Average Ride Length by Day of Week") + labs(x = "Days", y = "Average Ride Length")
+
+# Average ride length by hour for weekdays
+cycling_annual  %>% filter(day_of_week != "Saturday" &day_of_week != "Sunday") %>% group_by(member_casual, hour) %>%
+  summarise(avg_ride_duration = mean(ride_duration)) %>% ggplot(aes(x = hour, y = avg_ride_duration)) + geom_point() +
+  geom_line(aes(group = member_casual, colour = member_casual)) + ylim(0, NA) + 
+  ggtitle("Average Ride Length by Hour During Weekdays") + labs(x = "Hour", y = "Average Ride Length") 
+ 
+
+# Average ride length by hour for weekends
+cycling_annual  %>% filter(day_of_week == "Saturday" |
+  day_of_week == "Sunday") %>% group_by(member_casual, hour) %>% summarise(avg_ride_duration = mean(ride_duration)) %>% 
+  ggplot(aes(x = hour, y = avg_ride_duration)) + geom_point() + geom_line(aes(group = member_casual, colour = member_casual)) +
+  ylim(0, NA) + ggtitle("Average Ride Length by Hour During Weekend") + labs(x = "Hour", y = "Average ride length") 
+ 
+# Average rides for every station
+start_station_avg_rides <- cycling_annual %>% filter(start_station_name != " ") %>% 
+  group_by(start_station_name, member_casual, date) %>% summarise(num_of_rides = n()) %>% 
+  group_by(start_station_name, member_casual) %>% summarise(daily_avg_ride = mean(num_of_rides))
+
+# Top 20 Stations
+top_20_stations <-
+  rbind(
+    start_station_avg_rides %>% filter(member_casual == "member") %>% arrange(desc(daily_avg_ride)) %>% head(20),
+    start_station_avg_rides %>% filter(member_casual == "casual") %>% arrange(desc(daily_avg_ride)) %>% head(20)
+  )
+
+# Top 20 stations for member
+top_20_stations %>% filter(member_casual == "member") %>% 
+  ggplot(aes(x = start_station_name, y = daily_avg_ride)) +
+  geom_segment(aes(x = reorder(start_station_name, daily_avg_ride),
+  xend = reorder(start_station_name, daily_avg_ride),
+  y = 0, yend = daily_avg_ride),
+  color = "skyblue") +
+  geom_point(color = "blue",
+             size = 4,
+             alpha = 0.6) +
+  theme_light() +
+  coord_flip() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  ) + ggtitle("Top 20 Popular Stations for Members") + labs(x = "Stations", y = "Daily average rides")
+ 
+# Top 20 stations for casual 
+top_20_stations %>% filter(member_casual == "casual") %>% 
+  ggplot(aes(x = start_station_name, y = daily_avg_ride)) +
+  geom_segment(aes(x = reorder(start_station_name, daily_avg_ride),
+                   xend = reorder(start_station_name, daily_avg_ride),
+                   y = 0, yend = daily_avg_ride),
+               color = "skyblue") +
+  geom_point(color = "blue",
+             size = 4,
+             alpha = 0.6) +
+  theme_light() +
+  coord_flip() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  ) + ggtitle("Top 20 Popular Stations for Casual Riders") + labs(x = "Stations", y = "Daily average rides")
+ 
+# Dataframe with distinct station names and co-ordinates
+distinct_start_stations <-
+  cycling_annual %>% filter(start_station_name != " ") %>% group_by(start_station_name) %>% 
+  summarise(lat = mean(start_lat), long = mean(start_lng))
+# Sort the station and merge with location co-ordinates
+top_20_stations <-
+  top_20_stations %>% left_join(distinct_start_stations, by = "start_station_name")
+# Visualize the stations in a map for both member and casual
+BicycleText <- paste(
+  "Station name: ",
+  top_20_stations$start_station_name,
+  "<br/>",
+  "Daily Average Ride: ",
+  round(top_20_stations$daily_avg_ride, 0),
+  sep = ""
+) %>%
+  lapply(htmltools::HTML)
+
+pal <- colorFactor(c("red", "blue"), domain = c("member", "casual"))
+plot <-
+  leaflet(top_20_stations) %>% addTiles() %>% addCircleMarkers(
+    ~ long,
+    ~ lat,
+    color = ~ pal(member_casual),
+    stroke = FALSE,
+    fillOpacity = 0.5,
+    label = BicycleText,
+    group = "circles"
+  ) %>% addLegend(
+    pal = pal,
+    values = ~ member_casual,
+    group = "circles",
+    position = "topright"
+  )
+
+plot
+ 
+
+# Top 10 trips made by member
+top_trips_member <-
+  cycling_annual %>% filter(start_station_name != " " &
+  end_station_name != " ") %>% 
+  mutate(trip = paste(start_station_name, "till", end_station_name)) %>%  
+  group_by(trip, member_casual) %>% summarise(num_of_rides = n()) %>% arrange(desc(num_of_rides)) %>% 
+  filter(member_casual == "member") %>% head(10)
+# Top 10 trips made by member visualized
+ggplot(top_trips_member, aes(x = reorder(trip, num_of_rides), y = num_of_rides)) +
+  geom_segment(aes(
+    x = reorder(trip, num_of_rides),
+    xend = reorder(trip, num_of_rides),
+    y = 0,
+    yend = num_of_rides
+  ), color = "skyblue") +
+  geom_point(color = "blue",
+             size = 4,
+             alpha = 0.6) +
+  theme_light() +
+  coord_flip() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  ) + ggtitle("Top 10 Popular Trips Made by Members") + labs(x = "Trips", y = "Number of Rides")
+ 
+# Top 10 trips made by casual
+top_trips_casual <-
+  cycling_annual %>% filter(start_station_name != " " &
+  end_station_name != " ") %>% mutate(trip = paste(start_station_name, "till", end_station_name)) %>%  
+  group_by(trip, member_casual) %>% summarise(num_of_rides = n()) %>% arrange(desc(num_of_rides)) %>% 
+  filter(member_casual == "casual") %>% head(10)
+# Top 10 trips made by casual visualized
+ggplot(top_trips_casual, aes(x = reorder(trip, num_of_rides), y = num_of_rides)) +
+  geom_segment(aes(
+    x = reorder(trip, num_of_rides),
+    xend = reorder(trip, num_of_rides),
+    y = 0,
+    yend = num_of_rides
+  ), color = "skyblue") +
+  geom_point(color = "blue",
+             size = 4,
+             alpha = 0.6) +
+  theme_light() +
+  coord_flip() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  ) + ggtitle(str_wrap("Top 10 Popular Trips Made by Caual Riders", 25)) + 
+  labs(x = "Trips", y = "Number of Rides")
+ 
+Summary of Analysis:
+•	Unlike members, casuals ride their bicycle for longer.
+•	Due to weather conditions, both members and casual ride the bikes more during summer rather than winter months. It is very important to note that the number of casual riders during the summer season increases much more than members.
+•	Members are more active than casual riders during weekdays. That can be explained by the fact that they are people who use bicycles to commute to work or students who attend university.
+•	Casual riders ride more than members during the weekend.
+Top 3 recommendations:
+•	Encourage members to use their bikes more during the weekend by including sales promo or extensions to their membership when achieving certain mileage.
+•	Since colder months have a lower activity rate than hotter months, try to include basic clothing such as a hat or gloves which can keep the rider warm.
+•	Try to increase the number of casual riders to become members outside of the summer season when there are fewer casual riders. 
